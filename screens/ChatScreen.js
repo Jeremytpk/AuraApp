@@ -236,31 +236,67 @@ function ChatScreen({ navigation }) {
       
       // Schedule next check based on consecutive Aura messages
       if (consecutiveAuraMessages === 1) {
-        // First check after 2 min
+        // First check after 2 min - randomize message
+        const firstCheckMessages = [
+          "Uh hello? You good or did you ghost me? 👀",
+          "Bestie... you still there? 🤔",
+          "Girl, where'd you go? 😭",
+          "Um, you alive? Just checking 👀",
+          "Babe, you disappeared on me?? 🥺",
+          "Helloooo? Don't leave me hanging bestie 💕"
+        ];
         const timer1 = setTimeout(() => {
           setInactivityCount(1);
-          setMessages(msgs => ([...msgs, { id: String(msgs.length + 1), text: "Uh hello? You good or did you ghost me? 👀", sender: 'Aura' }]));
+          const randomMsg = firstCheckMessages[Math.floor(Math.random() * firstCheckMessages.length)];
+          setMessages(msgs => ([...msgs, { id: String(msgs.length + 1), text: randomMsg, sender: 'Aura' }]));
         }, 2 * 60 * 1000);
         inactivityTimers.current = [timer1];
       } else if (consecutiveAuraMessages === 2) {
-        // Second check after 4 more minutes
+        // Second check after 4 more minutes - randomize message
+        const secondCheckMessages = [
+          "Okay now I'm actually concerned... or you're just ignoring me which is rude af 😒",
+          "Girl, it's been a minute... you good over there? 😕",
+          "Starting to think you're avoiding me fr fr 🙄",
+          "Bestie please don't tell me you fell asleep on me 😭",
+          "Nah this is getting weird now, where you at? 👀",
+          "I'm lowkey worried... text me back babe 💔"
+        ];
         const timer2 = setTimeout(() => {
           setInactivityCount(2);
-          setMessages(msgs => ([...msgs, { id: String(msgs.length + 1), text: "Okay now I'm actually concerned... or you're just ignoring me which is rude af 😒", sender: 'Aura' }]));
+          const randomMsg = secondCheckMessages[Math.floor(Math.random() * secondCheckMessages.length)];
+          setMessages(msgs => ([...msgs, { id: String(msgs.length + 1), text: randomMsg, sender: 'Aura' }]));
         }, 4 * 60 * 1000);
         inactivityTimers.current = [timer2];
       } else if (consecutiveAuraMessages === 3) {
-        // Third check after 6 more minutes
+        // Third check after 6 more minutes - randomize message
+        const thirdCheckMessages = [
+          "Fine, I'll be here whenever you decide to come back. No pressure or anything 🙄",
+          "Alright I see how it is... just gonna sit here and wait I guess 😤",
+          "You know what? Do you. I'll just be over here... waiting 💅",
+          "Cool cool cool, just leave me on read then. I'm totally not bothered 🙃",
+          "Girl if you're busy just say that. I'll wait but like... hurry up 😒",
+          "This is giving me anxiety bestie, you better be okay 😭"
+        ];
         const timer3 = setTimeout(() => {
           setInactivityCount(3);
-          setMessages(msgs => ([...msgs, { id: String(msgs.length + 1), text: "Fine, I'll be here whenever you decide to come back. No pressure or anything 🙄", sender: 'Aura' }]));
+          const randomMsg = thirdCheckMessages[Math.floor(Math.random() * thirdCheckMessages.length)];
+          setMessages(msgs => ([...msgs, { id: String(msgs.length + 1), text: randomMsg, sender: 'Aura' }]));
         }, 6 * 60 * 1000);
         inactivityTimers.current = [timer3];
       } else if (consecutiveAuraMessages === 4) {
-        // Fourth (bye) after 8 more minutes
+        // Fourth (bye) after 8 more minutes - randomize message
+        const byeMessages = [
+          "Alright babe, I can take a hint. Catch you later when you're ready to actually talk 💋",
+          "Okay I'm out. Hit me up when you actually wanna chat bestie 🚪",
+          "You know where to find me when you're ready. Peace ✌️",
+          "I'll give you some space. Come back when you got time for me 💕",
+          "Aight I'm done waiting. Text me when you're free babe 😘",
+          "I'm gonna head out. Hmu later when you can actually respond 👋"
+        ];
         const timer4 = setTimeout(() => {
           setInactivityCount(4);
-          setMessages(msgs => ([...msgs, { id: String(msgs.length + 1), text: "Alright babe, I can take a hint. Catch you later when you're ready to actually talk �", sender: 'Aura' }]));
+          const randomMsg = byeMessages[Math.floor(Math.random() * byeMessages.length)];
+          setMessages(msgs => ([...msgs, { id: String(msgs.length + 1), text: randomMsg, sender: 'Aura' }]));
           setAwaitingUser(false);
           setAuraPaused(true); // Pause Aura after bye
         }, 8 * 60 * 1000);
