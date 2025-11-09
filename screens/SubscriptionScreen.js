@@ -67,8 +67,10 @@ export default function SubscriptionScreen({ navigation }) {
   };
   const confirmPlan = async () => {
     setShowConfirm(false);
-    setCurrentPlan(pendingPlan === 'Trial' ? 'Trial' : pendingPlan);
-    await AsyncStorage.setItem('aura_plan', pendingPlan);
+    // Capitalize plan name to match ChatScreen (Free, Princess, Queen)
+    const planName = pendingPlan.charAt(0).toUpperCase() + pendingPlan.slice(1);
+    setCurrentPlan(planName);
+    await AsyncStorage.setItem('aura_plan', planName);
     if (pendingPlan === 'Trial') {
       const now = Date.now();
       await AsyncStorage.setItem('aura_trial_start', now.toString());

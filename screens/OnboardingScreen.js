@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { View, Text, TextInput, ScrollView, TouchableOpacity, Platform } from 'react-native';
+import { View, Text, TextInput, ScrollView, TouchableOpacity, Platform, Modal, FlatList } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import Slider from '@react-native-community/slider';
 import CountryPicker from 'react-native-country-picker-modal';
@@ -16,7 +16,7 @@ const LOGO_COLORS = [
 ];
 
 const ZODIAC_SIGNS = [
-  '', 'Aries', 'Taurus', 'Gemini', 'Cancer', 'Leo', 'Virgo', 'Libra', 'Scorpio', 'Sagittarius', 'Capricorn', 'Aquarius', 'Pisces'
+  'Aries', 'Taurus', 'Gemini', 'Cancer', 'Leo', 'Virgo', 'Libra', 'Scorpio', 'Sagittarius', 'Capricorn', 'Aquarius', 'Pisces'
 ];
 
 export default function OnboardingScreen({ navigation }) {
@@ -29,26 +29,14 @@ export default function OnboardingScreen({ navigation }) {
   const [country, setCountry] = useState(null);
   const [countryCode, setCountryCode] = useState('US');
   const [showCountryPicker, setShowCountryPicker] = useState(false);
+  const [showZodiacPicker, setShowZodiacPicker] = useState(false);
 
   return (
     <View style={{ flex: 1, justifyContent: 'center', backgroundColor: '#FFF' }}>
       <ScrollView contentContainerStyle={{ alignItems: 'center', paddingVertical: 40, paddingHorizontal: 24 }} keyboardShouldPersistTaps="handled">
         <View style={{ width: '100%' }}>
-          <Text style={{ fontSize: 32, fontWeight: 'bold', color: '#D72660', marginBottom: 8, letterSpacing: 1, textAlign: 'center' }}>Welcome to Aura!</Text>
+          <Text style={{ fontSize: 32, fontWeight: 'bold', color: '#D72660', marginBottom: 8, paddingTop: 8, letterSpacing: 1, textAlign: 'center' }}>Welcome to Aura!</Text>
           <Text style={{ fontSize: 16, color: '#6A5AE0', marginBottom: 24, textAlign: 'center' }}>Let's get to know you so Aura can be the best friend for you.</Text>
-
-          <Text style={{ fontSize: 16, color: '#A78682', marginBottom: 4, marginTop: 16, fontWeight: '600' }}>Choose Aura's Personality</Text>
-          <View style={{ borderWidth: 1, borderColor: '#FFD6E0', borderRadius: 16, backgroundColor: '#FFF5F8', marginBottom: 4, overflow: 'hidden' }}>
-            <Picker
-              selectedValue={personality}
-              style={{ width: '100%', height: 54, color: '#D72660' }}
-              onValueChange={setPersonality}
-            >
-              <Picker.Item label="Sassy" value="sassy" />
-              <Picker.Item label="Friendly" value="friendly" />
-              <Picker.Item label="Professional" value="professional" />
-            </Picker>
-          </View>
 
           <Text style={{ fontSize: 16, color: '#A78682', marginBottom: 4, marginTop: 16, fontWeight: '600' }}>Race / Ethnicity</Text>
           <TextInput
@@ -67,39 +55,58 @@ export default function OnboardingScreen({ navigation }) {
             keyboardType="numeric"
           />
 
-          <Text style={{ fontSize: 16, color: '#A78682', marginBottom: 4, marginTop: 16, fontWeight: '600' }}>Religion (optional)</Text>
-          <TextInput
-            style={{ borderWidth: 1, borderColor: '#FFD6E0', borderRadius: 16, backgroundColor: '#FFF5F8', paddingHorizontal: 16, paddingVertical: Platform.OS === 'ios' ? 14 : 10, fontSize: 16, marginBottom: 8, color: '#222' }}
-            value={religion}
-            onChangeText={setReligion}
-            placeholder="e.g. Christian, Muslim, None, etc."
-          />
-          <Text style={{ fontSize: 16, color: '#A78682', marginBottom: 4, marginTop: 16, fontWeight: '600' }}>How deep? (0-10, optional)</Text>
-          <Slider
-            style={{ width: '100%', height: 40 }}
-            minimumValue={0}
-            maximumValue={10}
-            step={1}
-            value={religionDepth}
-            onValueChange={setReligionDepth}
-            minimumTrackTintColor="#D72660"
-            maximumTrackTintColor="#FFE3ED"
-            thumbTintColor="#D72660"
-          />
-          <Text style={{ fontSize: 16, color: '#D72660', alignSelf: 'flex-end', marginBottom: 8 }}>{religionDepth}</Text>
-
           <Text style={{ fontSize: 16, color: '#A78682', marginBottom: 4, marginTop: 16, fontWeight: '600' }}>Zodiac Sign (optional)</Text>
-          <View style={{ borderWidth: 1, borderColor: '#FFD6E0', borderRadius: 16, backgroundColor: '#FFF5F8', marginBottom: 4, overflow: 'hidden' }}>
-            <Picker
-              selectedValue={zodiac}
-              style={{ width: '100%', height: 54, color: '#D72660' }}
-              onValueChange={setZodiac}
-            >
-              {ZODIAC_SIGNS.map(sign => (
-                <Picker.Item key={sign} label={sign || 'Select'} value={sign} />
-              ))}
-            </Picker>
-          </View>
+          <TouchableOpacity 
+            style={{ borderWidth: 2, borderColor: '#D72660', borderRadius: 16, backgroundColor: '#FFF5F8', paddingHorizontal: 16, paddingVertical: Platform.OS === 'ios' ? 14 : 10, marginBottom: 8 }} 
+            onPress={() => setShowZodiacPicker(true)}
+          >
+            <Text style={{ color: zodiac ? '#D72660' : '#aaa', fontSize: 16 }}>
+              {zodiac || 'Select your zodiac sign'}
+            </Text>
+          </TouchableOpacity>
+
+          <Modal
+            visible={showZodiacPicker}
+            animationType="slide"
+            transparent={true}
+            onRequestClose={() => setShowZodiacPicker(false)}
+          >
+            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)' }}>
+              <View style={{ backgroundColor: '#FFF', borderRadius: 20, padding: 20, width: '85%', maxHeight: '70%' }}>
+                <Text style={{ fontSize: 20, fontWeight: 'bold', color: '#D72660', marginBottom: 16, textAlign: 'center' }}>
+                  Select Your Zodiac Sign
+                </Text>
+                <FlatList
+                  data={ZODIAC_SIGNS}
+                  keyExtractor={(item) => item}
+                  renderItem={({ item }) => (
+                    <TouchableOpacity
+                      style={{ 
+                        padding: 16, 
+                        borderBottomWidth: 1, 
+                        borderBottomColor: '#FFE3ED',
+                        backgroundColor: zodiac === item ? '#FFF5F8' : '#FFF'
+                      }}
+                      onPress={() => {
+                        setZodiac(item);
+                        setShowZodiacPicker(false);
+                      }}
+                    >
+                      <Text style={{ fontSize: 18, color: zodiac === item ? '#D72660' : '#222', fontWeight: zodiac === item ? 'bold' : 'normal' }}>
+                        {item}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                />
+                <TouchableOpacity
+                  style={{ marginTop: 16, padding: 12, backgroundColor: '#D72660', borderRadius: 12 }}
+                  onPress={() => setShowZodiacPicker(false)}
+                >
+                  <Text style={{ color: '#FFF', textAlign: 'center', fontSize: 16, fontWeight: 'bold' }}>Close</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </Modal>
 
           <Text style={{ fontSize: 16, color: '#A78682', marginBottom: 4, marginTop: 16, fontWeight: '600' }}>Country</Text>
           <TouchableOpacity style={{ borderWidth: 1, borderColor: '#FFD6E0', borderRadius: 16, backgroundColor: '#FFF5F8', paddingHorizontal: 16, paddingVertical: Platform.OS === 'ios' ? 14 : 10, fontSize: 16, marginBottom: 8, color: '#222' }} onPress={() => setShowCountryPicker(true)}>

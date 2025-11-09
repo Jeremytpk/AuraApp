@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { fetchAIResponse } from '../utils/openai';
-import { View, Text, TextInput, Button, FlatList, StyleSheet, TouchableOpacity, Image, Alert, Modal, Pressable, ScrollView } from 'react-native';
+import { View, Text, TextInput, Button, FlatList, StyleSheet, TouchableOpacity, Image, Alert, Modal, Pressable, ScrollView, ActivityIndicator } from 'react-native';
 import { Ionicons, MaterialIcons, Feather } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import LottieView from 'lottie-react-native';
 import * as ImagePicker from 'expo-image-picker';
+import { Audio } from 'expo-av';
 import AuraLogo from '../assets/AuraLogo.png';
 import { Picker } from '@react-native-picker/picker';
 import { storage, auth, db } from '../firebase';
@@ -12,13 +13,8 @@ import { collection, addDoc, doc, getDoc } from 'firebase/firestore';
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useFocusEffect } from '@react-navigation/native';
 
-const initialMessages = [
-  {
-    id: '1',
-    text: "Hey! Ready to stir up some trouble or solve the world's problems?",
-    sender: 'Aura',
-  },
-];
+// Start with empty messages - user must text first
+const initialMessages = [];
 
 // Removed duplicate db declaration (already imported from '../firebase')
 
@@ -76,10 +72,18 @@ function ChatScreen({ navigation }) {
   const [showPhotoModal, setShowPhotoModal] = useState(false);
   const [showTrialModal, setShowTrialModal] = useState(false);
   const flatListRef = useRef(null);
+  
+  // Audio playback state
+  const [sound, setSound] = useState(null);
+  const [playingMessageId, setPlayingMessageId] = useState(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [backgroundSound, setBackgroundSound] = useState(null);
+  const [lastTap, setLastTap] = useState(null);
 
   // Placeholder: get current plan (should be from user profile or AsyncStorage)
-  const [currentPlan, setCurrentPlan] = useState('Free'); // Possible: 'Free', 'Trial', 'Basic', 'Pro', 'Coins'
+  const [currentPlan, setCurrentPlan] = useState('Free'); // Possible: 'Free', 'Trial', 'Princess', 'Queen', 'Coins'
   const [trialDaysLeft, setTrialDaysLeft] = useState(null); // Days left in trial
+  const [dailyMessageCount, setDailyMessageCount] = useState(0); // Track messages sent today
 
   // --- Plan Features & Limits ---
   const planFeatures = {
@@ -89,18 +93,53 @@ function ChatScreen({ navigation }) {
     Trial: { limit: Infinity, photo: true, history: true },
     Coins: { limit: 9999, photo: true, history: true },
   };
-  // --- Load plan from storage and update on navigation focus ---
+
+  // --- Load plan and message count from storage ---
   useEffect(() => {
-    const loadPlan = async () => {
+    const loadPlanAndCount = async () => {
+      // Load plan
       const storedPlan = await AsyncStorage.getItem('aura_plan');
       if (storedPlan && planFeatures[storedPlan]) {
         setCurrentPlan(storedPlan);
       } else {
         setCurrentPlan('Free');
       }
+
+      // Load message count and check if it's from today
+      const countData = await AsyncStorage.getItem('aura_message_count');
+      if (countData) {
+        const { count, date } = JSON.parse(countData);
+        const today = new Date().toDateString();
+        if (date === today) {
+          setDailyMessageCount(count);
+        } else {
+          // New day, reset count
+          setDailyMessageCount(0);
+          await AsyncStorage.setItem('aura_message_count', JSON.stringify({ count: 0, date: today }));
+        }
+      } else {
+        // Initialize count
+        const today = new Date().toDateString();
+        await AsyncStorage.setItem('aura_message_count', JSON.stringify({ count: 0, date: today }));
+      }
+
+      // Check trial status
+      const trialStart = await AsyncStorage.getItem('aura_trial_start');
+      if (trialStart) {
+        const start = parseInt(trialStart, 10);
+        const now = Date.now();
+        const days = Math.max(0, 5 - Math.floor((now - start) / (1000 * 60 * 60 * 24)));
+        setTrialDaysLeft(days);
+        if (days === 0) {
+          // Trial expired, revert to free
+          setCurrentPlan('Free');
+          await AsyncStorage.setItem('aura_plan', 'Free');
+          await AsyncStorage.setItem('aura_trial_start', '');
+        }
+      }
     };
-    loadPlan();
-    const unsubscribe = navigation?.addListener?.('focus', loadPlan);
+    loadPlanAndCount();
+    const unsubscribe = navigation?.addListener?.('focus', loadPlanAndCount);
     return unsubscribe;
   }, [navigation]);
 
@@ -185,42 +224,43 @@ function ChatScreen({ navigation }) {
     if (lastMsg.sender === 'Aura') {
       clearInactivityTimers();
       setAwaitingUser(true);
-      // Count how many times Aura has checked in (not including bye)
-      let checks = 0;
+      // Count consecutive Aura messages from the end backwards until we hit a user message
+      let consecutiveAuraMessages = 0;
       for (let i = messages.length - 1; i >= 0; i--) {
         if (messages[i].sender === 'Aura') {
-          if (messages[i].text && messages[i].text.includes('Looks like you') && messages[i].text.includes('bye')) break;
-          checks++;
-        } else {
+          consecutiveAuraMessages++;
+        } else if (messages[i].sender === 'You') {
           break;
         }
       }
-      if (checks === 0) {
+      
+      // Schedule next check based on consecutive Aura messages
+      if (consecutiveAuraMessages === 1) {
         // First check after 2 min
         const timer1 = setTimeout(() => {
           setInactivityCount(1);
-          setMessages(msgs => ([...msgs, { id: String(msgs.length + 1), text: "You still there? Just checking in!", sender: 'Aura' }]));
+          setMessages(msgs => ([...msgs, { id: String(msgs.length + 1), text: "Uh hello? You good or did you ghost me? 👀", sender: 'Aura' }]));
         }, 2 * 60 * 1000);
         inactivityTimers.current = [timer1];
-      } else if (checks === 1) {
-        // Second check after 4 min
+      } else if (consecutiveAuraMessages === 2) {
+        // Second check after 4 more minutes
         const timer2 = setTimeout(() => {
           setInactivityCount(2);
-          setMessages(msgs => ([...msgs, { id: String(msgs.length + 1), text: "Did I lose you? Let me know when you're back!", sender: 'Aura' }]));
+          setMessages(msgs => ([...msgs, { id: String(msgs.length + 1), text: "Okay now I'm actually concerned... or you're just ignoring me which is rude af 😒", sender: 'Aura' }]));
         }, 4 * 60 * 1000);
         inactivityTimers.current = [timer2];
-      } else if (checks === 2) {
-        // Third check after 6 min
+      } else if (consecutiveAuraMessages === 3) {
+        // Third check after 6 more minutes
         const timer3 = setTimeout(() => {
           setInactivityCount(3);
-          setMessages(msgs => ([...msgs, { id: String(msgs.length + 1), text: "I'm still here if you want to chat!", sender: 'Aura' }]));
+          setMessages(msgs => ([...msgs, { id: String(msgs.length + 1), text: "Fine, I'll be here whenever you decide to come back. No pressure or anything 🙄", sender: 'Aura' }]));
         }, 6 * 60 * 1000);
         inactivityTimers.current = [timer3];
-      } else if (checks === 3) {
-        // Fourth (bye) after 8 min
+      } else if (consecutiveAuraMessages === 4) {
+        // Fourth (bye) after 8 more minutes
         const timer4 = setTimeout(() => {
           setInactivityCount(4);
-          setMessages(msgs => ([...msgs, { id: String(msgs.length + 1), text: "Looks like you're away! I'll say bye for now, but I'll be here when you want to chat again. 💖", sender: 'Aura' }]));
+          setMessages(msgs => ([...msgs, { id: String(msgs.length + 1), text: "Alright babe, I can take a hint. Catch you later when you're ready to actually talk �", sender: 'Aura' }]));
           setAwaitingUser(false);
           setAuraPaused(true); // Pause Aura after bye
         }, 8 * 60 * 1000);
@@ -235,6 +275,194 @@ function ChatScreen({ navigation }) {
     // Clean up on unmount
     return clearInactivityTimers;
   }, [messages]);
+
+  // Audio playback functions
+  const playAudio = async (audioData, messageId, backgroundSoundType = null) => {
+    try {
+      // Stop current audio if playing
+      if (sound) {
+        try {
+          await sound.stopAsync();
+          await sound.unloadAsync();
+        } catch (stopError) {
+          console.log('Error stopping previous sound:', stopError.message);
+        }
+      }
+      
+      // Stop background sound if playing
+      if (backgroundSound) {
+        try {
+          await backgroundSound.stopAsync();
+          await backgroundSound.unloadAsync();
+        } catch (bgStopError) {
+          console.log('Error stopping previous background sound:', bgStopError.message);
+        }
+      }
+
+      // Reset state
+      setSound(null);
+      setBackgroundSound(null);
+      setIsPlaying(false);
+
+      // Set audio mode for playback (allow mixing multiple sounds)
+      await Audio.setAudioModeAsync({
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+        shouldDuckAndroid: false,
+        allowsRecordingIOS: false,
+        interruptionModeIOS: 1, // Mix with others
+        interruptionModeAndroid: 1, // Do not mix
+      });
+
+      // Play background sound first if available (at 80% volume)
+      let bgSoundRef = null;
+      if (backgroundSoundType) {
+        try {
+          console.log('Attempting to load background sound:', backgroundSoundType);
+          // Map background sound type to actual audio files
+          const soundFiles = {
+            'coffee_shop_ambience': require('../assets/sounds/cafe_paris_ambience_chatter-2-337121.mp3'),
+            'party_sounds': require('../assets/sounds/muffled-party-music-183774.mp3'),
+            'home_ambience': require('../assets/sounds/tv-playing-in-the-next-room-distant-and-indistinct-television-sound-360697.mp3'),
+            'mall_ambience': require('../assets/sounds/crowd-people-shopping-mall-ambience-138235.mp3'),
+            'rain_sounds': require('../assets/sounds/rain-and-thunder-321270.mp3'),
+            'gym_sounds': require('../assets/sounds/gym-ambience-v2-58673.mp3'),
+            'outdoor_ambience': require('../assets/sounds/outside-ambience-29767.mp3'),
+          };
+          
+          const soundFile = soundFiles[backgroundSoundType];
+          console.log('Sound file found:', !!soundFile);
+          if (soundFile) {
+            const { sound: bgSound } = await Audio.Sound.createAsync(soundFile);
+            console.log('Background sound created');
+            await bgSound.setVolumeAsync(0.8); // 80% volume for background
+            console.log('Background volume set to 80%');
+            await bgSound.setIsLoopingAsync(true); // Loop background sound
+            console.log('Background looping enabled');
+            await bgSound.playAsync(); // Start playing background
+            console.log('Background sound playing:', backgroundSoundType);
+            bgSoundRef = bgSound;
+            setBackgroundSound(bgSound);
+          } else {
+            console.log('No sound file mapped for:', backgroundSoundType);
+          }
+        } catch (bgError) {
+          console.log('Background sound error:', backgroundSoundType, bgError.message);
+          console.error('Full background error:', bgError);
+          // Continue without background sound if file doesn't exist
+        }
+      }
+
+      // Load and play the main voice message (Aura's voice at 100% volume)
+      console.log('Loading audio from URI:', audioData);
+      
+      // Create the sound object
+      const { sound: newSound } = await Audio.Sound.createAsync(
+        { uri: audioData }
+      );
+
+      console.log('Audio loaded successfully');
+
+      // Set volume
+      await newSound.setVolumeAsync(1.0);
+      console.log('Volume set to 100%');
+
+      setSound(newSound);
+      setPlayingMessageId(messageId);
+
+      // Set up playback status update before playing
+      newSound.setOnPlaybackStatusUpdate((status) => {
+        if (status.didJustFinish) {
+          console.log('Audio playback finished - stopping background sound');
+          setIsPlaying(false);
+          setPlayingMessageId(null);
+          // Stop background sound when voice finishes
+          if (bgSoundRef) {
+            console.log('Stopping background sound reference');
+            bgSoundRef.stopAsync().then(() => {
+              console.log('Background sound stopped');
+            }).catch(err => console.log('Error stopping bg:', err));
+          }
+          setBackgroundSound(prevBgSound => {
+            if (prevBgSound) {
+              prevBgSound.stopAsync().catch(err => console.log('Error stopping prevBg:', err));
+            }
+            return null;
+          });
+        }
+      });
+
+      // Now play after everything is set up
+      console.log('Starting playback...');
+      await newSound.playAsync();
+      setIsPlaying(true);
+      console.log('Audio playback started successfully');
+
+    } catch (error) {
+      console.error('Error playing audio:', error);
+      console.error('Error details:', JSON.stringify(error));
+      Alert.alert('Playback Error', 'Could not play voice message: ' + error.message);
+    }
+  };
+
+  const pauseAudio = async () => {
+    try {
+      if (sound) {
+        await sound.pauseAsync();
+        setIsPlaying(false);
+      }
+      if (backgroundSound) {
+        await backgroundSound.pauseAsync();
+      }
+    } catch (error) {
+      console.error('Error pausing audio:', error);
+    }
+  };
+
+  const resumeAudio = async () => {
+    try {
+      if (sound) {
+        await sound.playAsync();
+        setIsPlaying(true);
+      }
+      if (backgroundSound) {
+        await backgroundSound.playAsync();
+      }
+    } catch (error) {
+      console.error('Error resuming audio:', error);
+    }
+  };
+
+  const stopAudio = async () => {
+    try {
+      if (sound) {
+        await sound.stopAsync();
+        await sound.unloadAsync();
+        setSound(null);
+      }
+      if (backgroundSound) {
+        await backgroundSound.stopAsync();
+        await backgroundSound.unloadAsync();
+        setBackgroundSound(null);
+      }
+      setIsPlaying(false);
+      setPlayingMessageId(null);
+    } catch (error) {
+      console.error('Error stopping audio:', error);
+    }
+  };
+
+  // Cleanup audio on unmount
+  useEffect(() => {
+    return () => {
+      if (sound) {
+        sound.unloadAsync();
+      }
+      if (backgroundSound) {
+        backgroundSound.unloadAsync();
+      }
+    };
+  }, [sound, backgroundSound]);
 
   // --- Plan Limits ---
   const planLimits = {
@@ -259,16 +487,27 @@ function ChatScreen({ navigation }) {
       setMessageCount(countObj.count);
     })();
   }, []);
-  // --- Update count on send ---
+  // --- Check message limit before sending ---
   const handleSendWithLimit = async () => {
     if (loading) return;
-    // Aura always replies, even if previously paused
+    
+    // Get current plan features
+    const features = planFeatures[currentPlan] || planFeatures.Free;
     const limit = features.limit;
-    if (messageCount >= limit) {
-      setLimitReached(true);
+    
+    // Check if user has reached their daily message limit
+    if (dailyMessageCount >= limit) {
+      Alert.alert(
+        'Daily Limit Reached',
+        `You've reached your ${limit} message limit for today with the ${currentPlan} plan. Upgrade to send unlimited messages!`,
+        [
+          { text: 'Maybe Later', style: 'cancel' },
+          { text: 'Upgrade Now', onPress: () => navigation.navigate('Subscription') }
+        ]
+      );
       return;
     }
-    setLimitReached(false);
+    
     // Detect goodbye intent
     if (isGoodbye(input)) {
       if (!pendingEnd) {
@@ -287,16 +526,15 @@ function ChatScreen({ navigation }) {
         return;
       }
     }
+    
+    // Send message
     await handleSend();
-    const today = new Date().toISOString().slice(0, 10);
-    const stored = await AsyncStorage.getItem('aura_msg_count');
-    let countObj = stored ? JSON.parse(stored) : { date: today, count: 0 };
-    if (countObj.date !== today) {
-      countObj = { date: today, count: 0 };
-    }
-    countObj.count += 1;
-    setMessageCount(countObj.count);
-    await AsyncStorage.setItem('aura_msg_count', JSON.stringify(countObj));
+    
+    // Increment daily message count
+    const newCount = dailyMessageCount + 1;
+    setDailyMessageCount(newCount);
+    const today = new Date().toDateString();
+    await AsyncStorage.setItem('aura_message_count', JSON.stringify({ count: newCount, date: today }));
   };
 
   const handleSend = async () => {
@@ -356,9 +594,54 @@ function ChatScreen({ navigation }) {
       if (personality === 'sassy' && (messages.length === 0 || messages[messages.length - 1].sender === 'Aura')) {
         nextPlayfulCount++;
       }
-      const aiText = await fetchAIResponse(newMessages, personality, userProfile, nextPlayfulCount, seriousThreshold);
-      setMessages(msgs => ([...msgs, { id: String(msgs.length + 1), text: aiText, sender: 'Aura' }]));
-      if (personality === 'sassy' && aiText && /serious/i.test(aiText)) {
+      const aiResponse = await fetchAIResponse(newMessages, personality, userProfile, nextPlayfulCount, seriousThreshold);
+      
+      // aiResponse is now just a string
+      setMessages(msgs => ([...msgs, { 
+        id: String(msgs.length + 1), 
+        text: aiResponse, 
+        sender: 'Aura' 
+      }]));
+
+      // Check for message limit warnings (80% and 100%)
+      const features = planFeatures[currentPlan] || planFeatures.Free;
+      const newCount = dailyMessageCount + 1;
+      
+      if (features.limit !== Infinity) {
+        const percentUsed = (newCount / features.limit) * 100;
+        
+        // Check if user just hit 80% threshold
+        const previousPercent = (dailyMessageCount / features.limit) * 100;
+        
+        if (percentUsed >= 80 && previousPercent < 80) {
+          // Just crossed 80% - send warning
+          const messagesLeft = features.limit - newCount;
+          const warningMsg = currentPlan === 'Free' 
+            ? `Hey bestie, just a heads up - you've got ${messagesLeft} messages left today on the Free plan. If you wanna keep chatting without limits, consider upgrading! 💕`
+            : `Girl, you're running low! Only ${messagesLeft} messages left today on your ${currentPlan} plan. Might wanna upgrade if you need more! 😘`;
+          
+          setMessages(msgs => ([...msgs, { 
+            id: String(msgs.length + 1), 
+            text: warningMsg, 
+            sender: 'Aura' 
+          }]));
+        }
+        
+        if (newCount >= features.limit) {
+          // Just hit the limit - send final message
+          const limitMsg = currentPlan === 'Free'
+            ? `Okay babe, that's all your messages for today on the Free plan! I'll be here tomorrow, or you can upgrade to keep chatting right now. Your choice! 💋`
+            : `That's it for today bestie! You've used all ${features.limit} messages on your ${currentPlan} plan. See you tomorrow, or upgrade to Queen for unlimited convos! 👑`;
+          
+          setMessages(msgs => ([...msgs, { 
+            id: String(msgs.length + 1), 
+            text: limitMsg, 
+            sender: 'Aura' 
+          }]));
+        }
+      }
+      
+      if (personality === 'sassy' && aiResponse && /serious/i.test(aiResponse)) {
         setPlayfulCount(0);
         setSeriousThreshold(Math.floor(Math.random() * 3) + 3);
       } else if (personality === 'sassy') {
@@ -414,6 +697,33 @@ function ChatScreen({ navigation }) {
 
   // Handle sending an image
   const handleSendImage = async (imageUri) => {
+    // Check if current plan allows photo sharing
+    const features = planFeatures[currentPlan] || planFeatures.Free;
+    if (!features.photo) {
+      Alert.alert(
+        'Photo Sharing Not Available',
+        `Photo sharing is not available on the ${currentPlan} plan. Upgrade to Princess or Queen to share photos with Aura!`,
+        [
+          { text: 'Maybe Later', style: 'cancel' },
+          { text: 'Upgrade Now', onPress: () => navigation.navigate('Subscription') }
+        ]
+      );
+      return;
+    }
+
+    // Check message limit
+    if (dailyMessageCount >= features.limit) {
+      Alert.alert(
+        'Daily Limit Reached',
+        `You've reached your ${features.limit} message limit for today. Upgrade for more messages!`,
+        [
+          { text: 'Maybe Later', style: 'cancel' },
+          { text: 'Upgrade Now', onPress: () => navigation.navigate('Subscription') }
+        ]
+      );
+      return;
+    }
+
     const userMsg = { id: String(messages.length + 1), image: imageUri, sender: 'You' };
     setMessages([...messages, userMsg]);
     setLoading(true);
@@ -432,8 +742,53 @@ function ChatScreen({ navigation }) {
         sender: 'You',
       });
       // Pass the downloadURL to Aura
-  const aiText = await fetchAIResponse([...messages, { ...userMsg, image: downloadURL }], personality, userProfile, playfulCount, seriousThreshold, downloadURL);
-      setMessages(msgs => ([...msgs, { id: String(msgs.length + 1), text: aiText, sender: 'Aura' }]));
+      const aiResponse = await fetchAIResponse([...messages, { ...userMsg, image: downloadURL }], personality, userProfile, playfulCount, seriousThreshold, downloadURL);
+      
+      // Increment message count after successful image send
+      const newCount = dailyMessageCount + 1;
+      setDailyMessageCount(newCount);
+      const today = new Date().toDateString();
+      await AsyncStorage.setItem('aura_message_count', JSON.stringify({ count: newCount, date: today }));
+      
+      // aiResponse is now just a string
+      setMessages(msgs => ([...msgs, { 
+        id: String(msgs.length + 1), 
+        text: aiResponse,
+        sender: 'Aura' 
+      }]));
+
+      // Check for message limit warnings (80% and 100%)
+      if (features.limit !== Infinity) {
+        const percentUsed = (newCount / features.limit) * 100;
+        const previousPercent = (dailyMessageCount / features.limit) * 100;
+        
+        if (percentUsed >= 80 && previousPercent < 80) {
+          // Just crossed 80% - send warning
+          const messagesLeft = features.limit - newCount;
+          const warningMsg = currentPlan === 'Free' 
+            ? `Hey bestie, just a heads up - you've got ${messagesLeft} messages left today on the Free plan. If you wanna keep chatting without limits, consider upgrading! 💕`
+            : `Girl, you're running low! Only ${messagesLeft} messages left today on your ${currentPlan} plan. Might wanna upgrade if you need more! 😘`;
+          
+          setMessages(msgs => ([...msgs, { 
+            id: String(msgs.length + 1), 
+            text: warningMsg, 
+            sender: 'Aura' 
+          }]));
+        }
+        
+        if (newCount >= features.limit) {
+          // Just hit the limit - send final message
+          const limitMsg = currentPlan === 'Free'
+            ? `Okay babe, that's all your messages for today on the Free plan! I'll be here tomorrow, or you can upgrade to keep chatting right now. Your choice! 💋`
+            : `That's it for today bestie! You've used all ${features.limit} messages on your ${currentPlan} plan. See you tomorrow, or upgrade to Queen for unlimited convos! 👑`;
+          
+          setMessages(msgs => ([...msgs, { 
+            id: String(msgs.length + 1), 
+            text: limitMsg, 
+            sender: 'Aura' 
+          }]));
+        }
+      }
     } catch (e) {
       setMessages(msgs => ([...msgs, { id: String(msgs.length + 1), text: 'Sorry, I had a brain freeze! 🥶', sender: 'Aura' }]));
     }
@@ -529,24 +884,24 @@ function ChatScreen({ navigation }) {
               )}
               {currentPlan === 'Free' && (
                 <View style={{ backgroundColor: '#E0E7FF', borderRadius: 16, paddingHorizontal: 12, paddingVertical: 3, flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start' }}>
-                  <Text style={{ fontSize: 13, fontWeight: 'bold', color: '#6366F1' }}>Free Plan</Text>
+                  <Text style={{ fontSize: 13, fontWeight: 'bold', color: '#6366F1' }}>Free</Text>
                 </View>
               )}
               {currentPlan === 'Princess' && (
                 <View style={{ backgroundColor: '#FFD6E0', borderRadius: 16, paddingHorizontal: 12, paddingVertical: 3, flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start' }}>
-                  <Text style={{ fontSize: 13, fontWeight: 'bold', color: '#D72660' }}>Princess Plan</Text>
+                  <Text style={{ fontSize: 13, fontWeight: 'bold', color: '#D72660' }}>Princess</Text>
                 </View>
               )}
               {currentPlan === 'Queen' && (
                 <View style={{ backgroundColor: '#FDE68A', borderRadius: 16, paddingHorizontal: 12, paddingVertical: 3, flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start' }}>
                   <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#B45309', marginRight: 4 }}>👑</Text>
-                  <Text style={{ fontSize: 13, fontWeight: 'bold', color: '#B45309' }}>Queen Plan</Text>
+                  <Text style={{ fontSize: 13, fontWeight: 'bold', color: '#B45309' }}>Queen</Text>
                 </View>
               )}
               {currentPlan === 'Pro' && (
                 <View style={{ backgroundColor: '#C7F9CC', borderRadius: 16, paddingHorizontal: 12, paddingVertical: 3, flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start' }}>
                   <Text style={{ fontSize: 15, fontWeight: 'bold', color: '#059669', marginRight: 4 }}>💎</Text>
-                  <Text style={{ fontSize: 13, fontWeight: 'bold', color: '#059669' }}>Pro Plan</Text>
+                  <Text style={{ fontSize: 13, fontWeight: 'bold', color: '#059669' }}>Pro</Text>
                 </View>
               )}
               {currentPlan === 'Coins' && (
@@ -556,6 +911,12 @@ function ChatScreen({ navigation }) {
                 </View>
               )}
             </View>
+            {/* Message count indicator for limited plans */}
+            {features.limit !== Infinity && (
+              <Text style={{ fontSize: 11, color: '#6B7280', marginTop: 2 }}>
+                {dailyMessageCount}/{features.limit} messages today
+              </Text>
+            )}
           </View>
           <TouchableOpacity onPress={handleNewConversation} style={styles.headerIcon} accessibilityLabel="New Conversation">
             <Ionicons name="chatbubble-ellipses-outline" size={24} color="#fff" />
@@ -713,7 +1074,9 @@ function ChatScreen({ navigation }) {
             {item.image ? (
               <Image source={{ uri: item.image }} style={styles.chatImage} />
             ) : null}
-            {item.text ? <Text style={styles.messageText}>{item.text}</Text> : null}
+            {item.text ? (
+              <Text style={styles.messageText}>{item.text}</Text>
+            ) : null}
           </View>
         )}
         contentContainerStyle={{ padding: 16 }}
@@ -776,7 +1139,11 @@ function ChatScreen({ navigation }) {
                 style={{ backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#D72660', paddingVertical: 16, alignItems: 'center', marginBottom: 16, flexDirection: 'row', justifyContent: 'center' }}
                 onPress={async () => {
                   setShowPhotoModal(false);
-                  let result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.7 });
+                  let result = await ImagePicker.launchImageLibraryAsync({ 
+                    mediaTypes: ['images'],
+                    quality: 0.7,
+                    allowsEditing: false
+                  });
                   if (!result.canceled && result.assets && result.assets[0]?.uri) {
                     handleSendImage(result.assets[0].uri);
                   }
@@ -789,7 +1156,11 @@ function ChatScreen({ navigation }) {
                 style={{ backgroundColor: '#D72660', borderRadius: 12, paddingVertical: 16, alignItems: 'center', marginBottom: 8, flexDirection: 'row', justifyContent: 'center' }}
                 onPress={async () => {
                   setShowPhotoModal(false);
-                  let result = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.7 });
+                  let result = await ImagePicker.launchCameraAsync({ 
+                    mediaTypes: ['images'],
+                    quality: 0.7,
+                    allowsEditing: false
+                  });
                   if (!result.canceled && result.assets && result.assets[0]?.uri) {
                     handleSendImage(result.assets[0].uri);
                   }
@@ -1045,6 +1416,7 @@ const styles = StyleSheet.create({
   inputRow: {
     flexDirection: 'row',
     padding: 10,
+    paddingBottom: 25, // Lift up the input container
     borderTopWidth: 1,
     borderColor: '#eee',
     backgroundColor: '#fff',
@@ -1107,5 +1479,30 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: 14,
     letterSpacing: 0.2,
+  },
+  audioPlayer: {
+    marginTop: 12,
+    padding: 12,
+    backgroundColor: '#FFF5F8',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#FFD6E0',
+  },
+  playButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  audioLabel: {
+    fontSize: 14,
+    color: '#D72660',
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  backgroundSoundLabel: {
+    fontSize: 12,
+    color: '#A78682',
+    marginTop: 8,
+    fontStyle: 'italic',
   },
 });

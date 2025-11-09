@@ -1,0 +1,40 @@
+import 'dotenv/config';
+
+export default {
+  expo: {
+    name: "Aura",
+    slug: "Aura",
+    version: "1.0.0",
+    orientation: "portrait",
+    icon: "./assets/logo_Aura.png",
+    userInterfaceStyle: "light",
+    newArchEnabled: true,
+    splash: {
+      image: "./assets/logo_Aura.png",
+      resizeMode: "contain",
+      backgroundColor: "#ffffff"
+    },
+    ios: {
+      supportsTablet: true,
+      bundleIdentifier: "com.jeremytpk.Aura",
+      infoPlist: {
+        ITSAppUsesNonExemptEncryption: false
+      }
+    },
+    android: {
+      adaptiveIcon: {
+        foregroundImage: "./assets/logo_Aura.png",
+        backgroundColor: "#ffffff"
+      }
+    },
+    web: {
+      favicon: "./assets/logo_Aura.png"
+    },
+    extra: {
+      eas: {
+        projectId: "b8040077-a7cc-4eb4-9c87-d326f22811e3"
+      },
+      OPENAI_API_KEY: process.env.OPENAI_API_KEY
+    }
+  }
+};
